@@ -5,6 +5,13 @@ const BUCKET = 'car-images'
 const MAX_SIZE_MB = 1.5
 const MAX_WIDTH_PX = 1920
 
+// Mirrors the car-images bucket's allowed_mime_types.
+const EXTENSION_BY_TYPE: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+}
+
 // `folderId` namespaces the Storage path and isn't required to be a real car
 // id — the Add Vehicle flow uploads photos before a car exists yet, so it
 // passes a temporary id per file. The path is never read back by id, only by
@@ -26,9 +33,15 @@ export async function uploadCarImage(
     console.warn('Image compression failed, uploading original file:', compressionError)
   }
 
-  const ext = file.name.split('.').pop() ?? 'jpg'
+  // The extension comes from the MIME type, never the user's filename, and
+  // anything outside the bucket's allowed_mime_types is refused here with a
+  // clear message rather than a generic Storage rejection.
+  const contentType = compressed.type || file.type
+  const ext = EXTENSION_BY_TYPE[contentType]
+  if (!ext) {
+    throw new Error('Only JPEG, PNG or WebP images can be uploaded.')
+  }
   const filename = `${folderId}/${Date.now()}.${ext}`
-  const contentType = compressed.type || file.type || 'image/jpeg'
 
   const supabase = createClient()
   const { error } = await supabase.storage
