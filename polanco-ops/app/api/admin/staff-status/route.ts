@@ -51,8 +51,9 @@ export async function POST(request: NextRequest) {
   })
 
   if (error) {
+    console.error('updateUserById (ban) failed:', error)
     return NextResponse.json(
-      { error: error.message || 'Failed to update account.' },
+      { error: 'Failed to update account.' },
       { status: 500 }
     )
   }

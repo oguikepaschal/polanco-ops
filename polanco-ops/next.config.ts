@@ -20,6 +20,21 @@ const nextConfig: NextConfig = withSerwist({
     // silently fall back to the closest allowed value (default [75]).
     qualities: [70, 75, 85],
   },
+  // Baseline hardening for every route. A full Content-Security-Policy is a
+  // deliberate follow-up — it needs the Supabase, Sentry and image origins
+  // audited first so it doesn't break the app.
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          { key: "X-Frame-Options", value: "DENY" },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+        ],
+      },
+    ];
+  },
 });
 
 export default withSentryConfig(nextConfig, {

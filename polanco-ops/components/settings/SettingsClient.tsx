@@ -11,7 +11,6 @@ import {
   UserCheck,
   Trash2,
 } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
 import { EXCHANGE_RATE_MAX, EXCHANGE_RATE_MIN, parseExchangeRate } from '@/lib/validations/exchangeRate'
 import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
@@ -75,10 +74,15 @@ export function SettingsClient({ settings, staff, currentUserId }: SettingsClien
   const rateUpdatedAt = rateUpdatedAtValue ? formatDate(rateUpdatedAtValue) : 'Never'
 
   async function saveSettings(updates: Record<string, string>) {
-    const supabase = createClient()
-    const upserts = Object.entries(updates).map(([key, value]) => ({ key, value }))
-    const { error } = await supabase.from('settings').upsert(upserts)
-    if (error) throw error
+    const res = await fetch('/api/admin/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ updates }),
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      throw new Error(data.error ?? 'Failed to save settings')
+    }
   }
 
   async function handleSaveBusiness() {
@@ -165,13 +169,23 @@ export function SettingsClient({ settings, staff, currentUserId }: SettingsClien
   async function handleToggleRole(profileId: string, currentRole: string) {
     if (profileId === currentUserId) return // cannot change own role
     const newRole = currentRole === 'admin' ? 'staff' : 'admin'
-    const supabase = createClient()
-    await supabase
-      .from('profiles')
-      .update({ role: newRole })
-      .eq('id', profileId)
-    // Refresh page to show updated roles
-    window.location.reload()
+    try {
+      const res = await fetch('/api/admin/staff-role', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: profileId, role: newRole }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        showToast(data.error ?? 'Failed to update role.', 'error')
+        return
+      }
+      // Refresh page to show updated roles
+      window.location.reload()
+    } catch (err) {
+      console.error('Role update failed:', err)
+      showToast('Failed to update role.', 'error')
+    }
   }
 
   async function handleInvite(e: React.FormEvent) {
