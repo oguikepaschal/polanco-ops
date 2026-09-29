@@ -39,6 +39,16 @@ export function TopBar({ action }: TopBarProps) {
   async function handleLogout() {
     const supabase = createClient()
     await supabase.auth.signOut()
+    // Wipe the service worker's runtime caches so nothing from this session
+    // (pages, API responses) survives on a shared device. The precache holds
+    // only static build assets, so it's kept for offline startup. Best-effort:
+    // a cache failure must never block sign-out.
+    try {
+      const keys = await caches.keys()
+      await Promise.all(keys.filter((k) => !k.includes('precache')).map((k) => caches.delete(k)))
+    } catch (err) {
+      console.error('Failed to clear caches on sign-out:', err)
+    }
     // Full reload to clear any client-side cache (react-query) and let
     // middleware route the now-unauthenticated user to /login.
     window.location.href = '/login'

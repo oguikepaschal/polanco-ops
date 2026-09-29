@@ -20,14 +20,22 @@ const nextConfig: NextConfig = withSerwist({
     // silently fall back to the closest allowed value (default [75]).
     qualities: [70, 75, 85],
   },
-  // Baseline hardening for every route. A full Content-Security-Policy is a
-  // deliberate follow-up — it needs the Supabase, Sentry and image origins
-  // audited first so it doesn't break the app.
+  // Baseline hardening for every route. The CSP deliberately has no
+  // script-src/default-src: Next.js inlines scripts on every page, so a
+  // script policy needs per-request nonces (which would make every page,
+  // including the static /cars showcase, render dynamically) and allowlists
+  // for the image-compression worker CDN and the in-browser PDF renderer.
+  // These four directives carry none of that risk. X-Frame-Options stays for
+  // browsers that predate frame-ancestors.
   async headers() {
     return [
       {
         source: "/:path*",
         headers: [
+          {
+            key: "Content-Security-Policy",
+            value: "frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'",
+          },
           { key: "X-Frame-Options", value: "DENY" },
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
