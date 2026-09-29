@@ -3,7 +3,7 @@ import { normalizeNigerianPhone, isPlausiblePhoneNumber } from '@/lib/formatters
 import { ALL_LEAD_SOURCES } from '@/lib/supabase/types'
 
 export const leadSchema = z.object({
-  name: z.string().min(1, 'Name is required'),
+  name: z.string().min(1, 'Name is required').max(100, 'Name is too long'),
   phone: z
     .string()
     .min(1, 'Phone is required')
@@ -15,7 +15,7 @@ export const leadSchema = z.object({
       message: 'Enter a valid phone number',
     }),
   email: z.string().email('Invalid email').optional().or(z.literal('')),
-  car_interest: z.string().optional(),
+  car_interest: z.string().max(200, 'Too long').optional(),
   car_id: z.string().uuid().optional(),
   // Accepts every source the DB allows (including 'website'), not just the
   // ones a staff member can pick manually — leadUpdateSchema must be able to
@@ -28,7 +28,7 @@ export const leadSchema = z.object({
     .optional()
     .or(z.literal(''))
     .transform((val) => (val === '' ? undefined : val)),
-  notes: z.string().optional(),
+  notes: z.string().max(2000, 'Notes are too long').optional(),
 })
 
 // Output type (after defaults/transforms are applied) — what a successful submit yields.

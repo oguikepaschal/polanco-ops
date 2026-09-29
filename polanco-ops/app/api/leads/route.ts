@@ -114,7 +114,17 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    return NextResponse.json({ lead, notificationError }, { status: 201 })
+    // The raw Twilio error (phone numbers, account detail) is logged above and
+    // sent to Sentry; the client only needs to know the send didn't happen.
+    return NextResponse.json(
+      {
+        lead,
+        notificationError: notificationError
+          ? 'Lead saved, but the WhatsApp notification failed.'
+          : null,
+      },
+      { status: 201 }
+    )
   } catch (err) {
     console.error('Create lead error:', err)
     return NextResponse.json(

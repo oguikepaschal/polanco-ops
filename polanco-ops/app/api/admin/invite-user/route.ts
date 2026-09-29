@@ -53,11 +53,14 @@ export async function POST(request: NextRequest) {
     const alreadyExists =
       error.status === 422 ||
       /already|registered|exists/i.test(error.message)
+    // Provider error text stays server-side — it can carry internal detail
+    // the client has no use for.
+    if (!alreadyExists) console.error('inviteUserByEmail failed:', error)
     return NextResponse.json(
       {
         error: alreadyExists
           ? 'That email has already been invited or registered.'
-          : error.message || 'Failed to send invitation.',
+          : 'Failed to send invitation.',
       },
       { status: alreadyExists ? 409 : 500 }
     )

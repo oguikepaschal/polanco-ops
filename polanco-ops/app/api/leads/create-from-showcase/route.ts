@@ -1,16 +1,31 @@
+import { createHash } from 'node:crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import * as Sentry from '@sentry/nextjs'
+import { z } from 'zod'
 import { createServiceClient } from '@/lib/supabase/service'
 import { normalizeNigerianPhone, isPlausiblePhoneNumber } from '@/lib/formatters'
 import { checkRateLimit } from '@/lib/showcase/rateLimiter'
 
-// Postgres error codes that mean "car_id itself is the problem" rather than
-// a real write failure: 22P02 is invalid UUID syntax (a malformed value),
-// 23503 is a foreign-key violation (car_id pointing at a row that no longer
-// exists). Either way the visitor's name and phone are still good — losing
-// the whole lead over a stale/bad car reference is worse than saving it
-// without one.
-const CAR_ID_ERROR_CODES = new Set(['22P02', '23503'])
+// 23503 is a foreign-key violation: car_id is a well-formed UUID (the schema
+// below guarantees that) but points at a car that no longer exists. The
+// visitor's name and phone are still good — losing the whole lead over a
+// stale car reference is worse than saving it without one.
+const CAR_ID_ERROR_CODES = new Set(['23503'])
+
+const showcaseLeadSchema = z.object({
+  name: z.string().trim().max(100).optional(),
+  phone: z.string().trim().min(1).max(30),
+  car_id: z.string().uuid(),
+  car_interest: z.string().trim().min(1).max(200),
+})
+
+// First hop of x-forwarded-for is the client IP on Vercel (the platform
+// overwrites the header, so it can't be spoofed there). Hashed before it is
+// stored so the leads table never holds a raw IP address.
+function clientIpHash(request: NextRequest): string | null {
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+  return ip ? createHash('sha256').update(ip).digest('hex') : null
+}
 
 // Public, unauthenticated lead-capture endpoint for the showcase enquiry flow.
 // This is the only unauthenticated write in the system, so it is locked down:
@@ -26,23 +41,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
   }
 
-  const { name, phone, car_id, car_interest } = (body ?? {}) as Record<
-    string,
-    unknown
-  >
-
-  const isNonEmptyString = (v: unknown): v is string =>
-    typeof v === 'string' && v.trim() !== ''
-
-  if (
-    !isNonEmptyString(phone) ||
-    !isNonEmptyString(car_id) ||
-    !isNonEmptyString(car_interest)
-  ) {
+  const parsed = showcaseLeadSchema.safeParse(body)
+  if (!parsed.success) {
     return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
   }
+  const { name, phone, car_id, car_interest } = parsed.data
 
-  const sanitizedName = isNonEmptyString(name) ? name.trim() : 'Website Enquiry'
+  const sanitizedName = name || 'Website Enquiry'
 
   // 2. Normalize the phone number and reject anything too short to be real.
   const normalizedPhone = normalizeNigerianPhone(phone)
@@ -51,7 +56,8 @@ export async function POST(request: NextRequest) {
   }
 
   // 3. Rate limit before the write.
-  const rate = await checkRateLimit(phone)
+  const ipHash = clientIpHash(request)
+  const rate = await checkRateLimit(phone, ipHash)
   if (!rate.allowed) {
     return NextResponse.json(
       {
@@ -70,6 +76,7 @@ export async function POST(request: NextRequest) {
     car_interest,
     source: 'website' as const,
     status: 'new' as const,
+    ip_hash: ipHash,
   }
 
   let { data: insertedRow, error } = await supabase
@@ -78,9 +85,9 @@ export async function POST(request: NextRequest) {
     .select('id')
     .single()
 
-  // 4b. car_id was never validated as a real, existing UUID above — if it's
-  // malformed or points at a car that's gone, retry once without it rather
-  // than dropping a visitor who filled out the form correctly.
+  // 4b. car_id is a valid UUID but was never checked to exist — if it points
+  // at a car that's gone, retry once without it rather than dropping a
+  // visitor who filled out the form correctly.
   if (error && CAR_ID_ERROR_CODES.has(error.code)) {
     console.error('Showcase lead car_id rejected, retrying without it:', error)
     Sentry.captureMessage('Showcase lead car_id rejected, retried without it', {
