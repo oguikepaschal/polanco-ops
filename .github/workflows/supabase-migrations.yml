@@ -13,6 +13,17 @@ on:
   # waiting for a real migration push. Note: GitHub only allows dispatching a
   # workflow once it exists on the default branch, so this is usable after merge.
   workflow_dispatch:
+    inputs:
+      # For migrations that were run by hand in the SQL editor: records them in
+      # the CLI's migration history first, so db push doesn't try to replay them
+      # (most older migrations use plain `add column` / `create table` and fail
+      # on a second run). Only list versions that are actually live in the
+      # database — anything listed here is never applied by this workflow.
+      mark_applied:
+        description: "Space-separated migration versions already applied by hand (e.g. 20260601000000 20260623000000). Leave empty to just push."
+        required: false
+        default: ""
+        type: string
 
 jobs:
   migrate:
@@ -30,6 +41,18 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+
+      - name: Record hand-applied migrations
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.mark_applied != '' }}
+        working-directory: polanco-ops
+        # Passed through env (not interpolated into the script) so the input
+        # can't inject shell. Word-splitting on $MARK_APPLIED is intentional.
+        run: supabase migration repair --status applied $MARK_APPLIED
+        env:
+          MARK_APPLIED: ${{ inputs.mark_applied }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
 
       - name: Push migrations
         working-directory: polanco-ops
